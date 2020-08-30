@@ -1,0 +1,211 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "AA"
+date: "8/29/2020"
+output: html_document
+---
+## Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Data
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+## What you should submit
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+- Your submission for the Peer Review portion should consist of a link to a Github repo with your R markdown and compiled HTML file describing your analysis. Please constrain the text of the writeup to < 2000 words and the number of figures to be less than 5. It will make it easier for the graders if you submit a repo with a gh-pages branch so the HTML page can be viewed online (and you always want to make it easy on graders :-).
+
+- Apply your machine learning algorithm to the 20 test cases available in the test data above and submit your predictions in appropriate format to the Course Project Prediction Quiz for automated grading.
+
+
+## Data cleaning and preprocessing
+
+In this section, we load the required R packages and load, pre-process and clean our data.
+
+### Load some packages first
+```{r }
+library(caret)
+library(randomForest)
+library(rpart) 
+library(rattle)
+library(rpart.plot)
+library(RColorBrewer)
+set.seed(33)
+```
+
+### Loading Data
+```{r}
+trainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+```
+
+Then, we read the files:
+
+```{r}
+training <- read.csv(url(trainUrl), na.strings=c("NA","#DIV/0!",""))
+testing <- read.csv(url(testUrl), na.strings=c("NA","#DIV/0!",""))
+```
+## Traning Data splitting
+Partioning the training set into two data sets, 60% for myTraining, 40% for myTesting:
+```{r}
+inTrain <- createDataPartition(y=training$classe, p=0.6, list=FALSE)
+myTraining <- training[inTrain, ]; myTesting <- training[-inTrain, ]
+dim(myTraining)
+dim(myTesting)
+```
+### Data Cleaning 
+
+We remove some missing data points and ignore the varaibles that are not usefull in the analysis.
+
+```{r}
+myDataNZV <- nearZeroVar(myTraining, saveMetrics=TRUE)
+head(myDataNZV, 15)
+```
+
+We define our new subset of NZV variables now:
+
+```{r}
+myNZVvars <- names(myTraining) %in% c("new_window", "kurtosis_roll_belt", "kurtosis_picth_belt",
+"kurtosis_yaw_belt", "skewness_roll_belt", "skewness_roll_belt.1", "skewness_yaw_belt",
+"max_yaw_belt", "min_yaw_belt", "amplitude_yaw_belt", "avg_roll_arm", "stddev_roll_arm",
+"var_roll_arm", "avg_pitch_arm", "stddev_pitch_arm", "var_pitch_arm", "avg_yaw_arm",
+"stddev_yaw_arm", "var_yaw_arm", "kurtosis_roll_arm", "kurtosis_picth_arm",
+"kurtosis_yaw_arm", "skewness_roll_arm", "skewness_pitch_arm", "skewness_yaw_arm",
+"max_roll_arm", "min_roll_arm", "min_pitch_arm", "amplitude_roll_arm", "amplitude_pitch_arm",
+"kurtosis_roll_dumbbell", "kurtosis_picth_dumbbell", "kurtosis_yaw_dumbbell", "skewness_roll_dumbbell",
+"skewness_pitch_dumbbell", "skewness_yaw_dumbbell", "max_yaw_dumbbell", "min_yaw_dumbbell",
+"amplitude_yaw_dumbbell", "kurtosis_roll_forearm", "kurtosis_picth_forearm", "kurtosis_yaw_forearm",
+"skewness_roll_forearm", "skewness_pitch_forearm", "skewness_yaw_forearm", "max_roll_forearm",
+"max_yaw_forearm", "min_roll_forearm", "min_yaw_forearm", "amplitude_roll_forearm",
+"amplitude_yaw_forearm", "avg_roll_forearm", "stddev_roll_forearm", "var_roll_forearm",
+"avg_pitch_forearm", "stddev_pitch_forearm", "var_pitch_forearm", "avg_yaw_forearm",
+"stddev_yaw_forearm", "var_yaw_forearm")
+myTraining <- myTraining[!myNZVvars]
+
+dim(myTraining)
+```
+
+We further clean the data by removing the first ID variable so that it does not affect our analysis:
+```{r}
+myTraining <- myTraining[c(-1)]
+```
+
+
+Finally, remove all NAN values
+```{r}
+trainingV3 <- myTraining 
+for(i in 1:length(myTraining)) { 
+        if( sum( is.na( myTraining[, i] ) ) /nrow(myTraining) >= .6 ) { 
+        for(j in 1:length(trainingV3)) {
+            if( length( grep(names(myTraining[i]), names(trainingV3)[j]) ) ==1)  { 
+                trainingV3 <- trainingV3[ , -j] 
+            }   
+        } 
+    }
+}
+dim(trainingV3)
+myTraining <- trainingV3
+rm(trainingV3)
+
+clean1 <- colnames(myTraining)
+clean2 <- colnames(myTraining[, -58])
+myTesting <- myTesting[clean1]
+testing <- testing[clean2]
+
+dim(myTesting)
+
+dim(testing)
+```
+
+
+## Analysis Approach
+
+We will apply two different approaches to analyze the data. Namely, they are Decision Tree and Random Forest. We will use the approach with the highest accuracy as our final model.
+
+## Decision Tree
+
+The first model is to fit the data with a decision tree using the rpart function in R.
+
+```{r}
+for (i in 1:length(testing) ) {
+        for(j in 1:length(myTraining)) {
+        if( length( grep(names(myTraining[i]), names(testing)[j]) ) ==1)  {
+            class(testing[j]) <- class(myTraining[i])
+        }      
+    }      
+}
+#And to make sure Coertion really worked, simple smart ass technique:
+testing <- rbind(myTraining[2, -58] , testing) #note row 2 does not mean anything, this will be removed right.. now:
+testing <- testing[-1,]
+modFitA1 <- rpart(classe ~ ., data=myTraining, method="class")
+```
+
+Here is a fancy plot of the tree:
+```{r}
+fancyRpartPlot(modFitA1)
+```
+
+After training our model, we'll test its prediction on the validation set:
+```{r}
+
+predictionsA1 <- predict(modFitA1, myTesting, type = "class")
+```
+
+Using confusion Matrix to test results:
+```{r}
+confusionMatrix(predictionsA1, factor(myTesting$classe))
+ose <- 1 - as.numeric(confusionMatrix(predictionsA1, factor(myTesting$classe))$overall[1])
+ose
+```
+
+As we can see from the above results,
+We find that the Estimated Accuracy of the Desicion tree Model is 87.18 % and the Estimated Out-of-Sample Error (OSE) is about 11.98%.
+
+## Random Foreset
+
+Now we train the second approach (random forest):
+
+```{r}
+modFitB1 <- train(classe ~ ., data = myTraining, method = "rf", trControl = trainControl(method = "cv", 5), ntree = 250)
+modFitB1
+```
+
+After we trained our model, we will to test it on the validation set:
+
+```{r}
+predictionsB1 <- predict(modFitB1, myTesting)
+```
+
+Using confusion Matrix, use get:
+
+```{r}
+confusionMatrix(predictionsB1, factor(myTesting$classe))
+ose <- 1 - as.numeric(confusionMatrix(predictionsB1, factor(myTesting$classe))$overall[1])
+ose
+```
+
+From the above results, one can see that the estimated accuracy of the Random Forest algorithm is 99.77% and the estimated out-of-sample error is approximately 0.1784349%.
+
+## Quiz part
+Here we give the predicted values for the 20 values in the test set:
+
+```{r}
+predictionsB2 <- predict(modFitB1, testing)
+predictionsB2
+```
+
+## Conclusion
+For this study, we found that Random-Forest algorithm outperforms the Decision Tree alogorithm in terms of its accuracy.
+
+
+
+
+
